@@ -8,7 +8,6 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
-
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -44,6 +43,7 @@ func (b *Builder) ParseAndBuildSSA(source string, funcName string) (*ssa.Functio
 		Scopes:     make(map[ast.Node]*types.Scope),
 		Instances:  make(map[*ast.Ident]types.Instance),
 	}
+
 	pkg, err := conf.Check(file.Name.Name, b.fset, []*ast.File{file}, info)
 	if err != nil {
 		return nil, fmt.Errorf("Typing error: %w", err)
