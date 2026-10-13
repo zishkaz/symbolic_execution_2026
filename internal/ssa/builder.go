@@ -2,8 +2,12 @@
 package ssa
 
 import (
+	"fmt"
+	"go/ast"
+	"go/importer"
+	"go/parser"
 	"go/token"
-
+	"go/types"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -24,17 +28,35 @@ func NewBuilder() *Builder {
 // ParseAndBuildSSA парсит исходный код Go и создаёт SSA представление
 // Возвращает SSA программу и функцию по имени
 func (b *Builder) ParseAndBuildSSA(source string, funcName string) (*ssa.Function, error) {
-	// TODO: Реализовать
-	// Шаги:
-	// 1. Парсинг исходного кода с помощью go/parser
-	// 2. Создание SSA программы
-	// 3. Поиск нужной функции по имени
+	file, err := parser.ParseFile(b.fset, "main.go", source, 0)
+	if err != nil {
+		return nil, fmt.Errorf("Parsing error: %w", err)
+	}
 
-	// Подсказки:
-	// - Используйте parser.ParseFile для парсинга
-	// - Создайте packages.Config и загрузите пакет
-	// - Используйте ssautil.CreateProgram для создания SSA
-	// - Найдите функцию в SSA программе
+	conf := types.Config{Importer: importer.Default()}
+	info := &types.Info{
+		Types:      make(map[ast.Expr]types.TypeAndValue),
+		Defs:       make(map[*ast.Ident]types.Object),
+		Uses:       make(map[*ast.Ident]types.Object),
+		Selections: make(map[*ast.SelectorExpr]*types.Selection),
+		Implicits:  make(map[ast.Node]types.Object),
+		Scopes:     make(map[ast.Node]*types.Scope),
+		Instances:  make(map[*ast.Ident]types.Instance),
+	}
 
-	panic("не реализовано")
+	pkg, err := conf.Check(file.Name.Name, b.fset, []*ast.File{file}, info)
+	if err != nil {
+		return nil, fmt.Errorf("Typing error: %w", err)
+	}
+
+	prog := ssa.NewProgram(b.fset, ssa.SanityCheckFunctions)
+	ssapkg := prog.CreatePackage(pkg, []*ast.File{file}, info, true)
+	ssapkg.Build()
+
+	fn := ssapkg.Func(funcName)
+	if fn == nil {
+		return nil, fmt.Errorf("Function %s not found", funcName)
+	}
+
+	return fn, nil
 }
