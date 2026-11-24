@@ -1,7 +1,10 @@
 // Package symbolic содержит конкретные реализации символьных выражений
 package symbolic
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // SymbolicExpression - базовый интерфейс для всех символьных выражений
 type SymbolicExpression interface {
@@ -101,28 +104,37 @@ type BinaryOperation struct {
 	Operator BinaryOperator
 }
 
-// TODO: Реализуйте следующие методы в рамках домашнего задания
-
 // NewBinaryOperation создаёт новую бинарную операцию
 func NewBinaryOperation(left, right SymbolicExpression, op BinaryOperator) *BinaryOperation {
-	// TODO: Реализовать
-	// Создать новую бинарную операцию и проверить совместимость типов
-	panic("не реализовано")
+	if left == nil || right == nil {
+		panic("symbolic: nil operand in binary operation")
+	}
+	if left.Type() != right.Type() {
+		panic(fmt.Sprintf("symbolic: type mismatch in binary operation '%s': %s vs %s",
+			op, left.Type(), right.Type()))
+	}
+	if isArithmeticOperator(op) && left.Type() != IntType {
+		panic(fmt.Sprintf("symbolic: arithmetic operation '%s' requires int operands, got %s",
+			op, left.Type()))
+	}
+	return &BinaryOperation{
+		Left:     left,
+		Right:    right,
+		Operator: op,
+	}
 }
 
 // Type возвращает результирующий тип операции
 func (bo *BinaryOperation) Type() ExpressionType {
-	// TODO: Реализовать
-	// Определить результирующий тип на основе операции и типов операндов
-	// Например: int + int = int, int < int = bool
-	panic("не реализовано")
+	if isComparisonOperator(bo.Operator) {
+		return BoolType
+	}
+	return IntType
 }
 
 // String возвращает строковое представление операции
 func (bo *BinaryOperation) String() string {
-	// TODO: Реализовать
-	// Формат: "(left operator right)"
-	panic("не реализовано")
+	return fmt.Sprintf("(%s %s %s)", bo.Left.String(), bo.Operator, bo.Right.String())
 }
 
 // Accept реализует Visitor pattern
@@ -136,13 +148,35 @@ type LogicalOperation struct {
 	Operator LogicalOperator
 }
 
-// TODO: Реализуйте следующие методы в рамках домашнего задания
-
 // NewLogicalOperation создаёт новую логическую операцию
 func NewLogicalOperation(operands []SymbolicExpression, op LogicalOperator) *LogicalOperation {
-	// TODO: Реализовать
-	// Создать логическую операцию и проверить типы операндов
-	panic("не реализовано")
+	switch op {
+	case NOT:
+		if len(operands) != 1 {
+			panic(fmt.Sprintf("symbolic: NOT requires exactly 1 operand, got %d", len(operands)))
+		}
+	case IMPLIES:
+		if len(operands) != 2 {
+			panic(fmt.Sprintf("symbolic: IMPLIES requires exactly 2 operands, got %d", len(operands)))
+		}
+	default: // AND, OR
+		if len(operands) < 2 {
+			panic(fmt.Sprintf("symbolic: %s requires at least 2 operands, got %d", op, len(operands)))
+		}
+	}
+	for i, operand := range operands {
+		if operand == nil {
+			panic(fmt.Sprintf("symbolic: nil operand #%d in logical operation '%s'", i, op))
+		}
+		if operand.Type() != BoolType {
+			panic(fmt.Sprintf("symbolic: logical operation '%s' requires bool operands, operand #%d has type %s",
+				op, i, operand.Type()))
+		}
+	}
+	return &LogicalOperation{
+		Operands: operands,
+		Operator: op,
+	}
 }
 
 // Type возвращает тип логической операции (всегда bool)
@@ -152,16 +186,44 @@ func (lo *LogicalOperation) Type() ExpressionType {
 
 // String возвращает строковое представление логической операции
 func (lo *LogicalOperation) String() string {
-	// TODO: Реализовать
-	// Для NOT: "!operand"
-	// Для AND/OR: "(operand1 && operand2 && ...)"
-	// Для IMPLIES: "(operand1 => operand2)"
-	panic("не реализовано")
+	if lo.Operator == NOT {
+		return fmt.Sprintf("!%s", lo.Operands[0].String())
+	}
+	if lo.Operator == IMPLIES {
+		return fmt.Sprintf("(%s => %s)", lo.Operands[0].String(), lo.Operands[1].String())
+	}
+
+	sep := fmt.Sprintf(" %s ", lo.Operator)
+	parts := make([]string, len(lo.Operands))
+	for i, operand := range lo.Operands {
+		parts[i] = operand.String()
+	}
+	return fmt.Sprintf("(%s)", strings.Join(parts, sep))
 }
 
 // Accept реализует Visitor pattern
 func (lo *LogicalOperation) Accept(visitor Visitor) interface{} {
 	return visitor.VisitLogicalOperation(lo)
+}
+
+// isArithmeticOperator проверяет, является ли оператор арифметическим
+func isArithmeticOperator(op BinaryOperator) bool {
+	switch op {
+	case ADD, SUB, MUL, DIV, MOD:
+		return true
+	default:
+		return false
+	}
+}
+
+// isComparisonOperator проверяет, является ли оператор сравнения
+func isComparisonOperator(op BinaryOperator) bool {
+	switch op {
+	case EQ, NE, LT, LE, GT, GE:
+		return true
+	default:
+		return false
+	}
 }
 
 // Операторы для бинарных выражений
@@ -240,24 +302,105 @@ func (op LogicalOperator) String() string {
 	}
 }
 
+// Ref представляет символьную ссылку на область памяти (объект, массив, struct)
 type Ref struct {
-	// TODO: Выбрать и написать внутреннее представление символьной ссылки
+	ID       int
+	ExprType ExpressionType
 }
 
+// NewRef создаёт новую символьную ссылку
+func NewRef(id int, exprType ExpressionType) *Ref {
+	return &Ref{
+		ID:       id,
+		ExprType: exprType,
+	}
+}
+
+// Type возвращает тип объекта, на который указывает ссылка
 func (ref *Ref) Type() ExpressionType {
-	panic("не реализовано")
+	return ref.ExprType
 }
 
+// String возвращает строковое представление ссылки
 func (ref *Ref) String() string {
-	panic("не реализовано")
+	return fmt.Sprintf("ref#%d(%s)", ref.ID, ref.ExprType)
 }
 
+// Accept реализует Visitor pattern
 func (ref *Ref) Accept(visitor Visitor) interface{} {
-	panic("не реализовано")
+	return visitor.VisitRef(ref)
+}
+
+// UnaryOperator представляет унарный оператор
+type UnaryOperator int
+
+const (
+	// UMINUS арифметическое отрицание: -x (int)
+	UMINUS UnaryOperator = iota
+	// LNOT логическое отрицание: !x (bool)
+	LNOT
+)
+
+// String возвращает строковое представление унарного оператора
+func (op UnaryOperator) String() string {
+	switch op {
+	case UMINUS:
+		return "-"
+	case LNOT:
+		return "!"
+	default:
+		return "unknown"
+	}
+}
+
+// UnaryOperation представляет унарную операцию (-x, !x)
+type UnaryOperation struct {
+	Operand  SymbolicExpression
+	Operator UnaryOperator
+}
+
+// NewUnaryOperation создаёт новую унарную операцию и проверяет тип операнда
+func NewUnaryOperation(operand SymbolicExpression, op UnaryOperator) *UnaryOperation {
+	if operand == nil {
+		panic("symbolic: nil operand in unary operation")
+	}
+	switch op {
+	case UMINUS:
+		if operand.Type() != IntType {
+			panic(fmt.Sprintf("symbolic: unary '-' requires int operand, got %s", operand.Type()))
+		}
+	case LNOT:
+		if operand.Type() != BoolType {
+			panic(fmt.Sprintf("symbolic: unary '!' requires bool operand, got %s", operand.Type()))
+		}
+	default:
+		panic(fmt.Sprintf("symbolic: unknown unary operator %d", op))
+	}
+	return &UnaryOperation{
+		Operand:  operand,
+		Operator: op,
+	}
+}
+
+// Type возвращает результирующий тип унарной операции
+func (uo *UnaryOperation) Type() ExpressionType {
+	if uo.Operator == LNOT {
+		return BoolType
+	}
+	return IntType
+}
+
+// String возвращает строковое представление унарной операции
+func (uo *UnaryOperation) String() string {
+	return fmt.Sprintf("%s%s", uo.Operator, uo.Operand.String())
+}
+
+// Accept реализует Visitor pattern
+func (uo *UnaryOperation) Accept(visitor Visitor) interface{} {
+	return visitor.VisitUnaryOperation(uo)
 }
 
 // TODO: Добавьте дополнительные типы выражений по необходимости:
-// - UnaryOperation (унарные операции: -x, !x)
 // - ArrayAccess (доступ к элементам массива: arr[index])
 // - FunctionCall (вызовы функций: f(x, y))
 // - ConditionalExpression (тернарный оператор: condition ? true_expr : false_expr)
