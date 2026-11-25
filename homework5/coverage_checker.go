@@ -41,7 +41,10 @@ func runTestsWithCoverage(testFilePath string) (string, error) {
 	coverageFile := filepath.Join(os.TempDir(), "coverage.out")
 	defer os.Remove(coverageFile)
 
-	cmd := exec.Command("go", "test", "-v", "-coverprofile="+coverageFile, testDir)
+	// Запускаем go test из директории с тестами: передать её как аргумент-пакет
+	// нельзя, т.к. относительный путь без префикса "./" go test не принимает
+	cmd := exec.Command("go", "test", "-v", "-coverprofile="+coverageFile, ".")
+	cmd.Dir = testDir
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
