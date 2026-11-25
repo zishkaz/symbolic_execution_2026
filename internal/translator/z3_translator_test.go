@@ -346,13 +346,72 @@ func TestTranslateModArithmetic(t *testing.T) {
 	}
 }
 
-func TestTranslateRefReturnsError(t *testing.T) {
+func TestTranslateRef(t *testing.T) {
 	zt := NewZ3Translator()
 
-	ref := symbolic.NewRef(1, symbolic.ArrayType)
-	_, err := zt.TranslateExpression(ref)
-	if err == nil {
-		t.Error("Expected error when translating Ref")
+	// Ссылка кодируется целочисленной Z3-константой (адресом объекта)
+	ref := symbolic.NewRef(1, symbolic.StructType)
+	result, err := zt.TranslateExpression(ref)
+	if err != nil {
+		t.Fatalf("Translation error: %v", err)
+	}
+	if _, ok := result.(z3.Int); !ok {
+		t.Errorf("Expected z3.Int, got %T", result)
+	}
+
+	// Повторная трансляция той же ссылки должна вернуть ту же константу (кэш)
+	again, err := zt.TranslateExpression(symbolic.NewRef(1, symbolic.StructType))
+	if err != nil {
+		t.Fatalf("Translation error: %v", err)
+	}
+	if _, ok := zt.vars["ref#1"]; !ok {
+		t.Error("Expected 'ref#1' in variable cache")
+	}
+	if result.(z3.Int).String() != again.(z3.Int).String() {
+		t.Errorf("Expected cached ref constant, got %s vs %s", result, again)
+	}
+}
+
+func TestTranslateArrayStoreSelect(t *testing.T) {
+	zt := NewZ3Translator()
+
+	// store(heap, 5, 10) и последующее чтение select(..., 5) должно давать 10
+	heap := symbolic.NewArrayVariable("heap", symbolic.IntArraySort())
+	stored := symbolic.NewArrayStore(heap, symbolic.NewIntConstant(5), symbolic.NewIntConstant(10))
+	selected := symbolic.NewArraySelect(stored, symbolic.NewIntConstant(5), symbolic.IntType)
+
+	eqTen := symbolic.NewBinaryOperation(selected, symbolic.NewIntConstant(10), symbolic.EQ)
+	result, err := zt.TranslateExpression(eqTen)
+	if err != nil {
+		t.Fatalf("Translation error: %v", err)
+	}
+
+	solver := newSolverOnTranslator(zt)
+	solver.Assert(result.(z3.Bool))
+	sat, err := solver.Check()
+	if err != nil {
+		t.Fatalf("Solver error: %v", err)
+	}
+	if !sat {
+		t.Error("Expected select(store(heap, 5, 10), 5) == 10 to be satisfiable")
+	}
+
+	// Чтение по другому индексу не обязано давать 10: select(store(heap, 5, 10), 7) != 10 - SAT
+	other := symbolic.NewArraySelect(stored, symbolic.NewIntConstant(7), symbolic.IntType)
+	neTen := symbolic.NewBinaryOperation(other, symbolic.NewIntConstant(10), symbolic.NE)
+	result, err = zt.TranslateExpression(neTen)
+	if err != nil {
+		t.Fatalf("Translation error: %v", err)
+	}
+
+	solver2 := newSolverOnTranslator(zt)
+	solver2.Assert(result.(z3.Bool))
+	sat, err = solver2.Check()
+	if err != nil {
+		t.Fatalf("Solver error: %v", err)
+	}
+	if !sat {
+		t.Error("Expected select(store(heap, 5, 10), 7) != 10 to be satisfiable")
 	}
 }
 

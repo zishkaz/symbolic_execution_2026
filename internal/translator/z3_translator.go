@@ -177,12 +177,90 @@ func (zt *Z3Translator) VisitUnaryOperation(expr *symbolic.UnaryOperation) inter
 	panic(fmt.Sprintf("неподдерживаемый унарный оператор: %s", expr.Operator))
 }
 
-// VisitRef транслирует символьную ссылку в Z3
+// VisitRef транслирует символьную ссылку в Z3.
+// Ссылка кодируется целочисленной Z3-константой (адресом объекта),
+// что позволяет солверу рассуждать о равенстве ссылок и, соответственно, об алиасинге.
 func (zt *Z3Translator) VisitRef(expr *symbolic.Ref) interface{} {
-	panic(fmt.Sprintf("ссылки (%s) не транслируются в Z3 напрямую", expr.String()))
+	name := fmt.Sprintf("ref#%d", expr.ID)
+	if v, exists := zt.vars[name]; exists {
+		return v
+	}
+	v := zt.ctx.IntConst(name)
+	zt.vars[name] = v
+	return v
+}
+
+// VisitArrayVariable транслирует именованный символьный массив в Z3 константу сорта массива
+func (zt *Z3Translator) VisitArrayVariable(expr *symbolic.ArrayVariable) interface{} {
+	if v, exists := zt.vars[expr.Name]; exists {
+		return v
+	}
+	v := zt.ctx.Const(expr.Name, zt.arraySortToZ3(expr.Sort))
+	arr, ok := v.(z3.Array)
+	if !ok {
+		panic(fmt.Sprintf("переменная '%s' не является Z3 Array", expr.Name))
+	}
+	zt.vars[expr.Name] = arr
+	return arr
+}
+
+// VisitArrayStore транслирует функциональное обновление массива в Z3 store
+func (zt *Z3Translator) VisitArrayStore(expr *symbolic.ArrayStore) interface{} {
+	array, ok := expr.Array.Accept(zt).(z3.Array)
+	if !ok {
+		panic(fmt.Sprintf("операнд '%s' не является Z3 Array", expr.Array.String()))
+	}
+	index, ok := expr.Index.Accept(zt).(z3.Int)
+	if !ok {
+		panic(fmt.Sprintf("индекс '%s' не является Z3 Int", expr.Index.String()))
+	}
+	value, ok := expr.Value.Accept(zt).(z3.Value)
+	if !ok {
+		panic(fmt.Sprintf("значение '%s' не является Z3 значением", expr.Value.String()))
+	}
+	return array.Store(index, value)
+}
+
+// VisitArraySelect транслирует чтение из массива в Z3 select
+func (zt *Z3Translator) VisitArraySelect(expr *symbolic.ArraySelect) interface{} {
+	array, ok := expr.Array.Accept(zt).(z3.Array)
+	if !ok {
+		panic(fmt.Sprintf("операнд '%s' не является Z3 Array", expr.Array.String()))
+	}
+	index, ok := expr.Index.Accept(zt).(z3.Int)
+	if !ok {
+		panic(fmt.Sprintf("индекс '%s' не является Z3 Int", expr.Index.String()))
+	}
+	return array.Select(index)
 }
 
 // Вспомогательные методы
+
+// arraySortToZ3 строит Z3 сорт массива по его символьному описанию (рекурсивно для вложенных массивов)
+func (zt *Z3Translator) arraySortToZ3(sort symbolic.ArraySort) z3.Sort {
+	domain := zt.elemSortToZ3(sort.Index)
+	var range_ z3.Sort
+	if sort.Elem == symbolic.ArrayType {
+		if sort.Inner == nil {
+			panic("сорт массива с элементами-массивами требует внутреннего сорта")
+		}
+		range_ = zt.arraySortToZ3(*sort.Inner)
+	} else {
+		range_ = zt.elemSortToZ3(sort.Elem)
+	}
+	return zt.ctx.ArraySort(domain, range_)
+}
+
+// elemSortToZ3 возвращает Z3 сорт для скалярного символьного типа
+func (zt *Z3Translator) elemSortToZ3(exprType symbolic.ExpressionType) z3.Sort {
+	switch exprType {
+	case symbolic.IntType:
+		return zt.ctx.IntSort()
+	case symbolic.BoolType:
+		return zt.ctx.BoolSort()
+	}
+	panic(fmt.Sprintf("неподдерживаемый сорт элементов: %s", exprType))
+}
 
 // createZ3Variable создаёт Z3 переменную соответствующего типа
 func (zt *Z3Translator) createZ3Variable(name string, exprType symbolic.ExpressionType) z3.Value {

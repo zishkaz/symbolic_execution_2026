@@ -331,6 +331,135 @@ func (ref *Ref) Accept(visitor Visitor) interface{} {
 	return visitor.VisitRef(ref)
 }
 
+// ArrayVariable представляет именованный символьный массив (переменную теории массивов).
+// Используется моделью символьной памяти как хранилище полей объектов и элементов массивов.
+type ArrayVariable struct {
+	Name string
+	Sort ArraySort
+}
+
+// NewArrayVariable создаёт новый именованный символьный массив заданного сорта
+func NewArrayVariable(name string, sort ArraySort) *ArrayVariable {
+	if sort.Index != IntType {
+		panic(fmt.Sprintf("symbolic: array index type must be int, got %s", sort.Index))
+	}
+	if sort.Elem == ArrayType && sort.Inner == nil {
+		panic(fmt.Sprintf("symbolic: array variable '%s' with array elements requires inner sort", name))
+	}
+	return &ArrayVariable{
+		Name: name,
+		Sort: sort,
+	}
+}
+
+// Type возвращает тип выражения (всегда array)
+func (av *ArrayVariable) Type() ExpressionType {
+	return ArrayType
+}
+
+// String возвращает строковое представление массива
+func (av *ArrayVariable) String() string {
+	return fmt.Sprintf("%s:%s", av.Name, av.Sort)
+}
+
+// Accept реализует Visitor pattern
+func (av *ArrayVariable) Accept(visitor Visitor) interface{} {
+	return visitor.VisitArrayVariable(av)
+}
+
+// ArrayStore представляет функциональное обновление символьного массива:
+// результат равен исходному массиву, в котором по индексу записано новое значение
+type ArrayStore struct {
+	Array SymbolicExpression
+	Index SymbolicExpression
+	Value SymbolicExpression
+}
+
+// NewArrayStore создаёт выражение записи в символьный массив.
+// Индексом может быть целочисленное выражение или ссылка (адрес объекта в хипе).
+func NewArrayStore(array, index, value SymbolicExpression) *ArrayStore {
+	if array == nil || index == nil || value == nil {
+		panic("symbolic: nil operand in array store")
+	}
+	if array.Type() != ArrayType {
+		panic(fmt.Sprintf("symbolic: array store requires array operand, got %s", array.Type()))
+	}
+	if !isIntOrRef(index) {
+		panic(fmt.Sprintf("symbolic: array index must be int or ref, got %s", index.Type()))
+	}
+	return &ArrayStore{
+		Array: array,
+		Index: index,
+		Value: value,
+	}
+}
+
+// Type возвращает тип выражения (массив, как и у исходного операнда)
+func (as *ArrayStore) Type() ExpressionType {
+	return ArrayType
+}
+
+// String возвращает строковое представление записи в массив
+func (as *ArrayStore) String() string {
+	return fmt.Sprintf("store(%s, %s, %s)", as.Array.String(), as.Index.String(), as.Value.String())
+}
+
+// Accept реализует Visitor pattern
+func (as *ArrayStore) Accept(visitor Visitor) interface{} {
+	return visitor.VisitArrayStore(as)
+}
+
+// ArraySelect представляет чтение элемента символьного массива по индексу
+type ArraySelect struct {
+	Array      SymbolicExpression
+	Index      SymbolicExpression
+	ResultType ExpressionType
+}
+
+// NewArraySelect создаёт выражение чтения из символьного массива.
+// resultType — тип прочитанного значения (IntType, BoolType или ArrayType для вложенных массивов).
+func NewArraySelect(array, index SymbolicExpression, resultType ExpressionType) *ArraySelect {
+	if array == nil || index == nil {
+		panic("symbolic: nil operand in array select")
+	}
+	if array.Type() != ArrayType {
+		panic(fmt.Sprintf("symbolic: array select requires array operand, got %s", array.Type()))
+	}
+	if !isIntOrRef(index) {
+		panic(fmt.Sprintf("symbolic: array index must be int or ref, got %s", index.Type()))
+	}
+	return &ArraySelect{
+		Array:      array,
+		Index:      index,
+		ResultType: resultType,
+	}
+}
+
+// isIntOrRef проверяет, что выражение может быть индексом символьного массива:
+// целочисленное выражение или ссылка (адрес объекта в хипе)
+func isIntOrRef(expr SymbolicExpression) bool {
+	if expr.Type() == IntType {
+		return true
+	}
+	_, isRef := expr.(*Ref)
+	return isRef
+}
+
+// Type возвращает тип прочитанного элемента
+func (as *ArraySelect) Type() ExpressionType {
+	return as.ResultType
+}
+
+// String возвращает строковое представление чтения из массива
+func (as *ArraySelect) String() string {
+	return fmt.Sprintf("select(%s, %s)", as.Array.String(), as.Index.String())
+}
+
+// Accept реализует Visitor pattern
+func (as *ArraySelect) Accept(visitor Visitor) interface{} {
+	return visitor.VisitArraySelect(as)
+}
+
 // UnaryOperator представляет унарный оператор
 type UnaryOperator int
 
@@ -401,6 +530,5 @@ func (uo *UnaryOperation) Accept(visitor Visitor) interface{} {
 }
 
 // TODO: Добавьте дополнительные типы выражений по необходимости:
-// - ArrayAccess (доступ к элементам массива: arr[index])
 // - FunctionCall (вызовы функций: f(x, y))
 // - ConditionalExpression (тернарный оператор: condition ? true_expr : false_expr)
