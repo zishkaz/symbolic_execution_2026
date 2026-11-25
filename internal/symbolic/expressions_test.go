@@ -269,6 +269,18 @@ func (cv *countingVisitor) VisitRef(expr *Ref) interface{} {
 	return nil
 }
 
+func (cv *countingVisitor) VisitArrayVariable(expr *ArrayVariable) interface{} {
+	return nil
+}
+
+func (cv *countingVisitor) VisitArrayStore(expr *ArrayStore) interface{} {
+	return nil
+}
+
+func (cv *countingVisitor) VisitArraySelect(expr *ArraySelect) interface{} {
+	return nil
+}
+
 func TestVisitorTraversal(t *testing.T) {
 	// Выражение: (x + y) > 5
 	x := NewSymbolicVariable("x", IntType)
@@ -289,4 +301,82 @@ func TestVisitorTraversal(t *testing.T) {
 	if cv.binaries != 2 {
 		t.Errorf("Expected 2 binary operations, got %d", cv.binaries)
 	}
+}
+
+func TestStructTypeString(t *testing.T) {
+	if StructType.String() != "struct" {
+		t.Errorf("Expected 'struct', got '%s'", StructType.String())
+	}
+}
+
+func TestArrayVariable(t *testing.T) {
+	heap := NewArrayVariable("heap", IntArraySort())
+	if heap.Type() != ArrayType {
+		t.Errorf("Expected ArrayType, got %s", heap.Type())
+	}
+	if heap.String() != "heap:array(int -> int)" {
+		t.Errorf("Expected 'heap:array(int -> int)', got '%s'", heap.String())
+	}
+
+	nested := NewArrayVariable("nested", ArraySort{Index: IntType, Elem: ArrayType, Inner: &ArraySort{Index: IntType, Elem: IntType}})
+	if nested.Type() != ArrayType {
+		t.Errorf("Expected ArrayType, got %s", nested.Type())
+	}
+}
+
+func TestArrayStoreSelect(t *testing.T) {
+	heap := NewArrayVariable("heap", IntArraySort())
+	five := NewIntConstant(5)
+	ten := NewIntConstant(10)
+
+	stored := NewArrayStore(heap, five, ten)
+	if stored.Type() != ArrayType {
+		t.Errorf("Expected ArrayType, got %s", stored.Type())
+	}
+	if stored.String() != "store(heap:array(int -> int), 5, 10)" {
+		t.Errorf("Unexpected store string: '%s'", stored.String())
+	}
+
+	selected := NewArraySelect(stored, five, IntType)
+	if selected.Type() != IntType {
+		t.Errorf("Expected IntType, got %s", selected.Type())
+	}
+	if selected.String() != "select(store(heap:array(int -> int), 5, 10), 5)" {
+		t.Errorf("Unexpected select string: '%s'", selected.String())
+	}
+}
+
+func TestArrayStoreSelectRefIndex(t *testing.T) {
+	// Ссылка может быть индексом символьного массива (адрес объекта в хипе)
+	heap := NewArrayVariable("heap", IntArraySort())
+	ref := NewRef(1, StructType)
+
+	stored := NewArrayStore(heap, ref, NewIntConstant(42))
+	selected := NewArraySelect(stored, ref, IntType)
+	if selected.Type() != IntType {
+		t.Errorf("Expected IntType, got %s", selected.Type())
+	}
+}
+
+func TestArrayStoreTypePanics(t *testing.T) {
+	x := NewSymbolicVariable("x", IntType)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic on store into non-array")
+		}
+	}()
+	NewArrayStore(x, NewIntConstant(0), NewIntConstant(1))
+}
+
+func TestArraySelectTypePanics(t *testing.T) {
+	heap := NewArrayVariable("heap", IntArraySort())
+	flag := NewSymbolicVariable("flag", BoolType)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Expected panic on select with bool index")
+		}
+	}()
+	NewArraySelect(heap, flag, IntType)
 }
